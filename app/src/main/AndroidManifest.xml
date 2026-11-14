@@ -1,35 +1,267 @@
-10s
-Run gradle assembleDebug&#x20;
-Starting a Gradle Daemon (subsequent builds will be faster)&#x20;
-\> Task :app:preBuild UP-TO-DATE&#x20;
-\> Task :app:preDebugBuild UP-TO-DATE&#x20;
-\> Task :app:mergeDebugNativeDebugMetadata NO-SOURCE&#x20;
-\> Task :app:checkKotlinGradlePluginConfigurationErrors SKIPPED&#x20;
-\> Task :app:generateDebugResValues&#x20;
-\> Task :app:checkDebugAarMetadata&#x20;
-\> Task :app:mapDebugSourceSetPaths&#x20;
-\> Task :app:generateDebugResources&#x20;
-\> Task :app:mergeDebugResources&#x20;
-\> Task :app:packageDebugResources&#x20;
-\> Task :app:createDebugCompatibleScreenManifests&#x20;
-\> Task :app:extractDeepLinksDebug&#x20;
-\> Task :app:processDebugMainManifest FAILED&#x20;
-\> Task :app:parseDebugLocalResources&#x20;
-gradle/actions: Writing build results to /home/runner/work/\_temp/.gradle-actions/build-results/\_\_run_2-1794696441261.json&#x20;
-10 actionable tasks: 10 executed&#x20;
-FAILURE: Build failed with an exception.&#x20;
-\* What went wrong:&#x20;
-A problem was found with the configuration of task ':app:processDebugMainManifest' (type 'ProcessApplicationManifest').&#x20;
-&#x20; \- In plugin 'com.android.internal.version-check' type 'com.android.build.gradle.tasks.ProcessApplicationManifest' property 'mainManifest' specifies file '/home/runner/work/tenski-ai-android/tenski-ai-android/app/src/main/AndroidManifest.xml' which doesn't exist.&#x20;
-&#x20;   Reason: An input file was expected to be present but it doesn't exist.&#x20;
-&#x20;   Possible solutions:&#x20;
-&#x20;     1\. Make sure the file exists before the task is called.&#x20;
-&#x20;     2\. Make sure that the task which produces the file is declared as an input.&#x20;
-&#x20;   For more information, please refer to [https://docs.gradle.org/8.9/userguide/validation_problems.html#input_file_does_not_exist](https://docs.gradle.org/8.9/userguide/validation_problems.html#input_file_does_not_exist) in the Gradle documentation.&#x20;
-\* Try:&#x20;
-\> Run with --stacktrace option to get the stack trace.&#x20;
-\> Run with --info or --debug option to get more log output.&#x20;
-\> Run with --scan to get full insights.&#x20;
-\> Get more help at [https://help.gradle.org.](https://help.gradle.org)&#x20;
-BUILD FAILED in 8s&#x20;
-**Error:&#x20;**&#x50;rocess completed with exit code 1.
+
+package com.tenski.ai
+
+import android.Manifest
+import android.app.Activity
+import android.content.pm.PackageManager
+import android.os.Bundle
+import android.graphics.*
+import android.view.View
+import android.view.MotionEvent
+import android.animation.ValueAnimator
+import android.view.animation.LinearInterpolator
+import android.media.AudioRecord
+import android.media.AudioFormat
+import android.media.MediaRecorder
+import android.widget.Toast
+import android.content.Context
+import kotlin.math.*
+
+class MainActivity : Activity() {
+
+    private lateinit var island: TenskiView
+    private var recorder: AudioRecord? = null
+    private var recording = false
+    private var audioThread: Thread? = null
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+
+        window.statusBarColor = Color.rgb(5, 5, 15)
+        window.navigationBarColor = Color.rgb(5, 5, 15)
+
+        island = TenskiView(this) { startListening() }
+        setContentView(island)
+    }
+
+    private fun startListening() {
+        if (recording) {
+            stopListening()
+            return
+        }
+
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO)
+            != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(
+                arrayOf(Manifest.permission.RECORD_AUDIO), 100
+            )
+            return
+        }
+
+        try {
+            val sampleRate = 16000
+            val bufferSize = AudioRecord.getMinBufferSize(
+                sampleRate,
+                AudioFormat.CHANNEL_IN_MONO,
+                AudioFormat.ENCODING_PCM_16BIT
+            )
+
+            if (bufferSize <= 0) {
+                Toast.makeText(this, "Microphone unavailable", Toast.LENGTH_SHORT).show()
+                return
+            }
+
+            recorder = AudioRecord(
+                MediaRecorder.AudioSource.MIC,
+                sampleRate,
+                AudioFormat.CHANNEL_IN_MONO,
+                AudioFormat.ENCODING_PCM_16BIT,
+                max(bufferSize, 4096)
+            )
+
+            recorder?.startRecording()
+            recording = true
+            island.setMode(1)
+
+            audioThread = Thread {
+                val buffer = ShortArray(1024)
+
+                while (recording) {
+                    val count = recorder?.read(buffer, 0, buffer.size) ?: 0
+
+                    if (count > 0) {
+                        var total = 0.0
+                        for (i in 0 until count) {
+                            total += buffer[i].toDouble().pow(2)
+                        }
+
+                        val rms = sqrt(total / count).toFloat()
+                        val level = (rms / 9000f).coerceIn(0f, 1f)
+
+                        runOnUiThread {
+                            island.setSoundLevel(level)
+                        }
+                    }
+                }
+            }
+            audioThread?.start()
+
+            Toast.makeText(this, "Listening...", Toast.LENGTH_SHORT).show()
+
+        } catch (e: Exception) {
+            stopListening()
+            Toast.makeText(this, "Could not start microphone", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun stopListening() {
+        recording = false
+
+        try {
+            recorder?.stop()
+            recorder?.release()
+        } catch (_: Exception) {}
+
+        recorder = null
+        island.setMode(0)
+        island.setSoundLevel(0f)
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+
+        if (requestCode == 100 &&
+            grantResults.isNotEmpty() &&
+            grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+            startListening()
+        }
+    }
+
+    override fun onDestroy() {
+        stopListening()
+        super.onDestroy()
+    }
+}
+
+class TenskiView(
+    context: Context,
+    private val onIslandTap: () -> Unit
+) : View(context) {
+
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private var phase = 0f
+    private var soundLevel = 0f
+    private var currentMode = 0
+
+    private val modes = arrayOf("IDLE", "LISTENING")
+
+    private val animator = ValueAnimator.ofFloat(0f, 2f * PI.toFloat())
+
+    init {
+        animator.duration = 2400
+        animator.repeatCount = ValueAnimator.INFINITE
+        animator.interpolator = LinearInterpolator()
+        animator.addUpdateListener {
+            phase = it.animatedValue as Float
+            invalidate()
+        }
+        animator.start()
+    }
+
+    fun setMode(mode: Int) {
+        currentMode = mode.coerceIn(0, 1)
+        invalidate()
+    }
+
+    fun setSoundLevel(level: Float) {
+        soundLevel = level.coerceIn(0f, 1f)
+        invalidate()
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        super.onDraw(canvas)
+        canvas.drawColor(Color.rgb(5, 5, 15))
+
+        val density = resources.displayMetrics.density
+        val cx = width / 2f
+        val top = 12f * density
+        val w = min(width * 0.78f, 300f * density)
+        val h = 66f * density
+
+        val rect = RectF(cx - w / 2, top, cx + w / 2, top + h)
+
+        val colors = if (currentMode == 1) {
+            intArrayOf(Color.CYAN, Color.BLUE, Color.CYAN)
+        } else {
+            intArrayOf(Color.CYAN, Color.BLUE, Color.MAGENTA)
+        }
+
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = 3f * density
+        paint.shader = LinearGradient(
+            rect.left, top, rect.right, top + h,
+            colors, null, Shader.TileMode.CLAMP
+        )
+        paint.setShadowLayer(22f * density, 0f, 0f, colors[1])
+        canvas.drawRoundRect(rect, h / 2, h / 2, paint)
+        paint.clearShadowLayer()
+
+        paint.style = Paint.Style.FILL
+        paint.shader = LinearGradient(
+            rect.left, top, rect.right, top + h,
+            Color.rgb(15, 18, 38),
+            Color.rgb(28, 12, 40),
+            Shader.TileMode.CLAMP
+        )
+        canvas.drawRoundRect(rect, h / 2, h / 2, paint)
+        paint.shader = null
+
+        val centerY = top + h / 2
+        val startX = cx - 48f * density
+        val gap = 6f * density
+
+        for (i in 0 until 17) {
+            val wave = abs(sin(phase + i * 0.48f))
+            val height = (
+                5f + wave * 10f + soundLevel * 24f
+            ) * density
+
+            val x = startX + i * gap
+            paint.color = colors[i % colors.size]
+
+            canvas.drawRoundRect(
+                x, centerY - height / 2,
+                x + 3f * density, centerY + height / 2,
+                4f * density, 4f * density, paint
+            )
+        }
+
+        paint.color = Color.WHITE
+        paint.textSize = 13f * density
+        paint.typeface = Typeface.create(
+            "sans-serif-medium", Typeface.NORMAL
+        )
+        paint.textAlign = Paint.Align.CENTER
+
+        canvas.drawText("TENSKI AI", cx, top + h + 38f * density, paint)
+
+        paint.color = Color.LTGRAY
+        paint.textSize = 11f * density
+        canvas.drawText(
+            modes[currentMode], cx, top + h + 58f * density, paint
+        )
+    }
+
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (event.action == MotionEvent.ACTION_UP) {
+            onIslandTap()
+            performClick()
+            return true
+        }
+        return true
+    }
+
+    override fun performClick(): Boolean {
+        super.performClick()
+        return true
+    }
+
+    override fun onDetachedFromWindow() {
+        animator.cancel()
+        super.onDetachedFromWindow()
+    }
+}
