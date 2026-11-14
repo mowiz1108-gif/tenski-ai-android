@@ -5,35 +5,52 @@ import android.app.Activity
 import android.os.Bundle
 import android.graphics.*
 import android.view.View
+import android.view.MotionEvent
 import android.animation.ValueAnimator
 import android.view.animation.LinearInterpolator
+import android.widget.Toast
 import kotlin.math.*
 
 class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
         window.statusBarColor = Color.rgb(5, 5, 15)
         window.navigationBarColor = Color.rgb(5, 5, 15)
-        setContentView(TenskiView())
+
+        setContentView(TenskiView(this))
     }
 }
 
-class TenskiView : View {
+class TenskiView(context: android.content.Context) : View(context) {
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private var phase = 0f
 
-    private val animator = ValueAnimator.ofFloat(0f, 2f * PI.toFloat())
+    private val modes = arrayOf(
+        "IDLE",
+        "LISTENING",
+        "THINKING",
+        "SPEAKING"
+    )
 
-    constructor(context: android.content.Context) : super(context) {
+    private var currentMode = 0
+
+    private val animator = ValueAnimator.ofFloat(
+        0f, 2f * PI.toFloat()
+    )
+
+    init {
         animator.duration = 2400
         animator.repeatCount = ValueAnimator.INFINITE
         animator.interpolator = LinearInterpolator()
+
         animator.addUpdateListener {
             phase = it.animatedValue as Float
             invalidate()
         }
+
         animator.start()
     }
 
@@ -44,7 +61,7 @@ class TenskiView : View {
 
         val density = resources.displayMetrics.density
         val cx = width / 2f
-        val top = 24f * density
+        val top = 12f * density
         val w = min(width * 0.78f, 300f * density)
         val h = 66f * density
 
@@ -55,28 +72,40 @@ class TenskiView : View {
             top + h
         )
 
-        // Outer glow
+        val colors = when (currentMode) {
+            1 -> intArrayOf(
+                Color.CYAN, Color.BLUE, Color.CYAN
+            )
+            2 -> intArrayOf(
+                Color.MAGENTA, Color.BLUE, Color.MAGENTA
+            )
+            3 -> intArrayOf(
+                Color.rgb(0, 255, 180),
+                Color.CYAN,
+                Color.MAGENTA
+            )
+            else -> intArrayOf(
+                Color.CYAN, Color.BLUE, Color.MAGENTA
+            )
+        }
+
+        // Island outline and glow
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = 3f * density
         paint.shader = LinearGradient(
             rect.left, top, rect.right, top + h,
-            intArrayOf(
-                Color.CYAN,
-                Color.BLUE,
-                Color.MAGENTA
-            ),
-            null,
-            Shader.TileMode.CLAMP
+            colors, null, Shader.TileMode.CLAMP
         )
+
         paint.setShadowLayer(
-            22f * density,
-            0f, 0f,
-            Color.rgb(80, 60, 255)
+            if (currentMode == 0) 15f * density else 25f * density,
+            0f, 0f, colors[1]
         )
+
         canvas.drawRoundRect(rect, h / 2, h / 2, paint)
         paint.clearShadowLayer()
 
-        // Dark island interior
+        // Island interior
         paint.style = Paint.Style.FILL
         paint.shader = LinearGradient(
             rect.left, top, rect.right, top + h,
@@ -84,6 +113,7 @@ class TenskiView : View {
             Color.rgb(28, 12, 40),
             Shader.TileMode.CLAMP
         )
+
         canvas.drawRoundRect(rect, h / 2, h / 2, paint)
         paint.shader = null
 
@@ -94,17 +124,24 @@ class TenskiView : View {
         val gap = 6f * density
 
         for (i in 0 until barCount) {
+
             val wave = abs(
                 sin(phase + i * 0.48f)
             )
-            val barHeight = (7f + wave * 22f) * density
+
+            val intensity = when (currentMode) {
+                0 -> 0.5f
+                1 -> 1.0f
+                2 -> 0.7f
+                else -> 1.2f
+            }
+
+            val barHeight =
+                (5f + wave * 22f * intensity) * density
+
             val x = startX + i * gap
 
-            paint.color = Color.rgb(
-                70 + (i * 8).coerceAtMost(100),
-                170,
-                255
-            )
+            paint.color = colors[i % colors.size]
 
             canvas.drawRoundRect(
                 x,
@@ -134,15 +171,42 @@ class TenskiView : View {
             paint
         )
 
+        // Current state
         paint.color = Color.LTGRAY
         paint.textSize = 11f * density
 
         canvas.drawText(
-            "Your AI assistant",
+            modes[currentMode],
             cx,
             top + h + 58f * density,
             paint
         )
+    }
+
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+
+        if (event.action == MotionEvent.ACTION_UP) {
+
+            currentMode = (currentMode + 1) % modes.size
+
+            Toast.makeText(
+                context,
+                modes[currentMode],
+                Toast.LENGTH_SHORT
+            ).show()
+
+            invalidate()
+            performClick()
+
+            return true
+        }
+
+        return true
+    }
+
+    override fun performClick(): Boolean {
+        super.performClick()
+        return true
     }
 
     override fun onDetachedFromWindow() {
@@ -150,3 +214,4 @@ class TenskiView : View {
         super.onDetachedFromWindow()
     }
 }
+
